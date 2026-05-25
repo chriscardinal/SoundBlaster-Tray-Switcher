@@ -4,8 +4,6 @@ A tiny Windows system-tray app that flips a Sound Blaster AE-7 between **speaker
 
 The AE-7's speaker/headphone toggle is a physical relay on the card (you can hear it click); it isn't a separate Windows audio device. The vendor's app exposes it as a single switch buried inside the GUI, with no system-tray shortcut. This app gives you that shortcut.
 
-![tray icon screenshot — left-click to toggle, right-click for menu](docs/screenshot.png)
-
 ## Features
 
 - **Left-click** the tray icon → flips the relay and updates the icon. Blue headphone icon = headphones, green speaker icon = speakers.
