@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
@@ -46,13 +47,58 @@ namespace SBQuickSwitch
             }
             catch (Exception ex)
             {
+                WriteCrashLog("Fatal startup", ex);
                 MessageBox.Show(
-                    "SBQuickSwitch failed to start:\r\n\r\n" + ex.Message,
+                    "SBQuickSwitch failed to start:\r\n\r\n" + UnwrapMessage(ex) +
+                    "\r\n\r\nDetails written to:\r\n" + LogPath,
                     "SBQuickSwitch",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return 1;
             }
             return 0;
+        }
+
+        // Diagnostic log written when init or toggle fails. Goes to %TEMP% so it survives a crash.
+        internal static string LogPath { get { return System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), "SBQuickSwitch-error.log"); } }
+
+        internal static void WriteCrashLog(string heading, Exception ex)
+        {
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("---- " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + heading + " ----");
+                sb.AppendLine("Process bitness:  " + (IntPtr.Size == 8 ? "x64" : "x86"));
+                sb.AppendLine("OS:               " + Environment.OSVersion);
+                sb.AppendLine("App version:      " + (Assembly.GetEntryAssembly().GetName().Version ?? new Version()));
+                sb.AppendLine();
+                sb.AppendLine("Exception chain:");
+                for (var e = ex; e != null; e = e.InnerException)
+                    sb.AppendLine("  [" + e.GetType().Name + "] " + e.Message);
+                sb.AppendLine();
+                sb.AppendLine("Full stack:");
+                sb.AppendLine(ex.ToString());
+                sb.AppendLine();
+                sb.AppendLine("Render endpoints visible at failure time:");
+                try
+                {
+                    foreach (var e in Native.EnumerateRenderEndpoints())
+                        sb.AppendLine("  - " + e.FriendlyName + "   [" + e.Id + "]");
+                }
+                catch (Exception eu) { sb.AppendLine("  (endpoint enumeration also failed: " + eu.Message + ")"); }
+                sb.AppendLine();
+                System.IO.File.AppendAllText(LogPath, sb.ToString());
+            }
+            catch { /* never let logging crash the crash handler */ }
+        }
+
+        // Format the deepest meaningful inner message (COM E_FAIL has terse layers worth unwinding).
+        internal static string UnwrapMessage(Exception ex)
+        {
+            var msgs = new System.Collections.Generic.List<string>();
+            for (var e = ex; e != null; e = e.InnerException)
+                msgs.Add(e.Message);
+            return string.Join("\r\n  ↳ ", msgs);
         }
 
         // ===== CLI diagnostics — printed to stdout via AllocConsole when running from a GUI subsystem =====
@@ -235,11 +281,22 @@ namespace SBQuickSwitch
             }
             catch (Exception ex)
             {
+                Program.WriteCrashLog("Initialization", ex);
                 _ni.Icon = _iconUnknown;
-                _ni.Text = "SBQuickSwitch: " + Truncate(ex.Message, 60);
-                _miStatus.Text = "Error: " + Truncate(ex.Message, 80);
-                ShowBalloon("Initialization failed", ex.Message, ToolTipIcon.Error);
+                SetNotifyText("SBQuickSwitch: init failed");
+                _miStatus.Text = "Error (see " + System.IO.Path.GetFileName(Program.LogPath) + ")";
+                ShowBalloon(
+                    "Initialization failed",
+                    Program.UnwrapMessage(ex) + "\r\nLog: " + Program.LogPath,
+                    ToolTipIcon.Error);
             }
+        }
+
+        // NotifyIcon.Text has a 63-char limit on the .NET Framework — clamp safely.
+        private void SetNotifyText(string s)
+        {
+            if (string.IsNullOrEmpty(s)) { _ni.Text = string.Empty; return; }
+            _ni.Text = (s.Length > 63) ? s.Substring(0, 60) + "..." : s;
         }
 
         private void OnMouseUp(object sender, MouseEventArgs e)
@@ -286,7 +343,7 @@ namespace SBQuickSwitch
             catch (Exception ex)
             {
                 _ni.Icon = _iconUnknown;
-                _ni.Text = "SBQuickSwitch: read failed";
+                SetNotifyText("SBQuickSwitch: read failed");
                 _miStatus.Text = "Read failed: " + Truncate(ex.Message, 80);
             }
         }
@@ -298,17 +355,17 @@ namespace SBQuickSwitch
             {
                 case OutputMode.Headphones:
                     _ni.Icon = _iconHeadphones;
-                    _ni.Text = device + " — Headphones";
+                    SetNotifyText(device + " — Headphones");
                     _miStatus.Text = "Current: Headphones (front-panel)";
                     break;
                 case OutputMode.Speakers:
                     _ni.Icon = _iconSpeakers;
-                    _ni.Text = device + " — Speakers";
+                    SetNotifyText(device + " — Speakers");
                     _miStatus.Text = "Current: Speakers (back-panel)";
                     break;
                 default:
                     _ni.Icon = _iconUnknown;
-                    _ni.Text = device + " — Unknown mode";
+                    SetNotifyText(device + " — Unknown mode");
                     _miStatus.Text = "Current: unknown mode";
                     break;
             }
