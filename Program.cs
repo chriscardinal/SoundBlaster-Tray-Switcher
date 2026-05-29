@@ -173,6 +173,8 @@ namespace SBQuickSwitch
                     ctrl.BindToAE7();
                     Console.WriteLine("Bound endpoint: " + ctrl.EndpointName);
                     Console.WriteLine("Endpoint id:    " + ctrl.EndpointId);
+                    if (ctrl.SetContextWarning != null)
+                        Console.WriteLine("Note: " + ctrl.SetContextWarning + " (non-fatal)");
                     int raw = ctrl.GetMultiplexOutput();
                     Console.WriteLine("MultiplexOutput raw: " + raw + "  (" + ctrl.GetMode() + ")");
                 }

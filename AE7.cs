@@ -32,18 +32,37 @@ namespace SBQuickSwitch
         public void BindToAE7()
         {
             var endpoints = Native.EnumerateRenderEndpoints();
-            // Prefer endpoints whose friendly name starts with "Sound Blaster".
-            // The AE-7 typically surfaces as "Sound Blaster Speakers" or "Sound Blaster Speaker/Headphone".
-            var match = endpoints.FirstOrDefault(e =>
-                            !string.IsNullOrEmpty(e.FriendlyName) &&
-                            e.FriendlyName.IndexOf("Sound Blaster", StringComparison.OrdinalIgnoreCase) >= 0);
 
-            if (match == null)
+            // Anything mentioning Sound Blaster.
+            var sb = endpoints
+                .Where(e => !string.IsNullOrEmpty(e.FriendlyName) &&
+                            e.FriendlyName.IndexOf("Sound Blaster", StringComparison.OrdinalIgnoreCase) >= 0)
+                .ToList();
+
+            if (sb.Count == 0)
                 throw new InvalidOperationException(
                     "No active Sound Blaster render endpoint found.\r\n\r\n" +
                     "Available endpoints:\r\n  " +
                     string.Join("\r\n  ", endpoints.Select(e => e.FriendlyName)));
 
+            // Rank by usefulness. The AE-9 in particular exposes BOTH a S/PDIF endpoint
+            // ("Digital Audio (S/PDIF) (Sound Blaster AE-9s)") and an analog Speakers endpoint
+            // ("Speakers (Sound Blaster AE-9)"). The relay-control parameter is meaningful
+            // only on the analog endpoint; binding to S/PDIF gives E_FAIL on SetContext.
+            //
+            // Higher score = better candidate.
+            Func<Native.AudioEndpoint, int> score = e =>
+            {
+                string n = e.FriendlyName ?? string.Empty;
+                int s = 0;
+                if (LooksDigital(n)) s -= 100;               // S/PDIF / optical / digital — last resort
+                if (n.StartsWith("Speakers",   StringComparison.OrdinalIgnoreCase)) s += 20;
+                if (n.StartsWith("Headphones", StringComparison.OrdinalIgnoreCase)) s += 15;
+                if (n.StartsWith("Headphone",  StringComparison.OrdinalIgnoreCase)) s += 15;
+                return s;
+            };
+
+            var match = sb.OrderByDescending(score).First();
             _endpointId   = match.Id;
             _endpointName = match.FriendlyName;
 
@@ -56,9 +75,25 @@ namespace SBQuickSwitch
             catch (Exception ex)
             { throw new InvalidOperationException("ISoundCore.BindHardware failed for endpoint '" + _endpointName + "': " + ex.Message, ex); }
 
+            // SetContext can return E_FAIL on cards / modes that don't expose a per-context
+            // parameter space (observed on AE-9 in some configurations). MultiplexOutput is a
+            // device-level parameter, so this isn't actually required — swallow and keep going.
+            // If the device truly doesn't expose MultiplexOutput, GetParamValue will surface
+            // that error with a clear message.
+            SetContextWarning = null;
             try { _core.SetContext(Native.CONTEXT_STANDARD, Native.RESTORE_LAST_STATE); }
-            catch (Exception ex)
-            { throw new InvalidOperationException("ISoundCore.SetContext(Standard) failed: " + ex.Message, ex); }
+            catch (Exception ex) { SetContextWarning = "SetContext(Standard) returned " + ex.Message; }
+        }
+
+        /// <summary>Non-null if SetContext failed (we treat it as non-fatal).</summary>
+        public string SetContextWarning { get; private set; }
+
+        private static bool LooksDigital(string n)
+        {
+            return n.IndexOf("Digital",  StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("S/PDIF",   StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("SPDIF",    StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("Optical",  StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static Native.StParam MakeMuxParam()
