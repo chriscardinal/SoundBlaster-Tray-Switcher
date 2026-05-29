@@ -52,9 +52,13 @@ namespace SBQuickSwitch
                 infoType = Native.HW_INFO_ENDPOINT_ID,
                 info     = new Native.UtInfo { endpointId = match.Id },
             };
-            _core.BindHardware(ref hw);
+            try { _core.BindHardware(ref hw); }
+            catch (Exception ex)
+            { throw new InvalidOperationException("ISoundCore.BindHardware failed for endpoint '" + _endpointName + "': " + ex.Message, ex); }
 
-            _core.SetContext(Native.CONTEXT_STANDARD, Native.RESTORE_LAST_STATE);
+            try { _core.SetContext(Native.CONTEXT_STANDARD, Native.RESTORE_LAST_STATE); }
+            catch (Exception ex)
+            { throw new InvalidOperationException("ISoundCore.SetContext(Standard) failed: " + ex.Message, ex); }
         }
 
         private static Native.StParam MakeMuxParam()
@@ -71,7 +75,9 @@ namespace SBQuickSwitch
         public int GetMultiplexOutput()
         {
             Native.StParamValue val;
-            _core.GetParamValue(MakeMuxParam(), out val);
+            try { _core.GetParamValue(MakeMuxParam(), out val); }
+            catch (Exception ex)
+            { throw new InvalidOperationException("ISoundCore.GetParamValue(MultiplexOutput) failed: " + ex.Message, ex); }
             return (int)val.paramVal.dwordVal;
         }
 
@@ -83,7 +89,9 @@ namespace SBQuickSwitch
                 paramType = Native.PARAM_TYPE_DWORD,
                 paramVal  = new Native.UtParamValue { dwordVal = (uint)value },
             };
-            _core.SetParamValue(MakeMuxParam(), pv);
+            try { _core.SetParamValue(MakeMuxParam(), pv); }
+            catch (Exception ex)
+            { throw new InvalidOperationException("ISoundCore.SetParamValue(MultiplexOutput=" + value + ") failed: " + ex.Message, ex); }
         }
 
         public OutputMode GetMode()
